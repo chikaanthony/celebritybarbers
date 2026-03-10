@@ -83,11 +83,11 @@
                         <circle class="pie-bg" cx="50" cy="50" r="40"/>
                         <circle class="pie-fill" cx="50" cy="50" r="40" id="spendingPie" stroke-dasharray="0 251.2"/>
                         <text x="50" y="45" class="pie-text" text-anchor="middle" id="spendingAmount">₦0</text>
-                        <text x="50" y="60" class="pie-subtext" text-anchor="middle">of ₦5,000</text>
+                        <text x="50" y="60" class="pie-subtext" text-anchor="middle" id="spendingGoalText">of ₦4,000</text>
                     </svg>
                 </div>
                 <div class="spending-info">
-                    <p class="spending-goal">Reach ₦5,000 spending to unlock ₦500 bonus!</p>
+                    <p class="spending-goal" id="spendingGoal">Reach ₦4,000 spending to unlock ₦500 bonus!</p>
                     <div class="progress-bar">
                         <div class="progress-fill" id="spendingProgress" style="width: 0%;"></div>
                     </div>
@@ -784,9 +784,37 @@
             }
         }
 
+        let spendingGoal = 4000;
+        let bonusAmount = 500;
+
+        // Load spending settings on page load
+        async function loadSpendingSettings() {
+            try {
+                const response = await fetch('/api/spending-settings');
+                const result = await response.json();
+                if (result.success) {
+                    spendingGoal = result.target || 4000;
+                    bonusAmount = result.bonus || 500;
+                    
+                    // Update the displayed goal text
+                    const goalText = document.getElementById('spendingGoalText');
+                    if (goalText) {
+                        goalText.textContent = 'of ₦' + spendingGoal.toLocaleString();
+                    }
+                    
+                    const goalPara = document.getElementById('spendingGoal');
+                    if (goalPara) {
+                        goalPara.textContent = 'Reach ₦' + spendingGoal.toLocaleString() + ' spending to unlock ₦' + bonusAmount.toLocaleString() + ' bonus!';
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading spending settings:', error);
+            }
+        }
+
         function updateSpendingDisplay(totalSpent) {
-            const goal = 5000;
-            const bonusAmount = 500;
+            const goal = spendingGoal;
+            const bonus = bonusAmount;
             const currentStreak = totalSpent % goal;
             const bonusesEarned = Math.floor(totalSpent / goal);
             const percentage = Math.min((currentStreak / goal) * 100, 100);
@@ -811,7 +839,7 @@
             const hint = document.getElementById('spendingHint');
             if (hint) {
                 if (bonusesEarned > 0) {
-                    hint.textContent = `${bonusesEarned} bonus${bonusesEarned > 1 ? 'es' : ''} earned (NGN ${(bonusesEarned * bonusAmount).toLocaleString()})`;
+                    hint.textContent = `${bonusesEarned} bonus${bonusesEarned > 1 ? 'es' : ''} earned (NGN ${(bonusesEarned * bonus).toLocaleString()})`;
                 } else if (currentStreak >= goal) {
                     hint.textContent = 'Bonus unlocked!';
                 } else {
@@ -835,6 +863,7 @@
             document.body.style.overflow = 'auto';
         }
 
+        loadSpendingSettings();
         loadUserSpending();
         loadUserProfile();
         loadNotificationCount();

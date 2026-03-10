@@ -597,6 +597,34 @@
                 </div>
             </div>
 
+            <!-- Spending Targets Section -->
+            <div class="vip-section">
+                <div class="vip-header">
+                    <span class="vip-icon">🎯</span>
+                    <span class="vip-title">SPENDING TARGETS & BONUSES</span>
+                </div>
+                <div class="vip-row">
+                    <div class="vip-info">
+                        <span class="vip-label">Monthly Spending Target:</span>
+                    </div>
+                    <div class="vip-price-input">
+                        <span>₦</span>
+                        <input type="number" id="spendingTarget" placeholder="4000">
+                        <button class="save-vip-btn" onclick="saveSpendingTarget()">SAVE</button>
+                    </div>
+                </div>
+                <div class="vip-row" style="margin-top: 15px;">
+                    <div class="vip-info">
+                        <span class="vip-label">Bonus Amount:</span>
+                    </div>
+                    <div class="vip-price-input">
+                        <span>₦</span>
+                        <input type="number" id="bonusAmount" placeholder="500">
+                        <button class="save-vip-btn" onclick="saveBonusAmount()">SAVE</button>
+                    </div>
+                </div>
+            </div>
+
             <!-- Services List -->
             <div class="services-header">
                 <h2 class="section-title">📋 SERVICES LIST</h2>
@@ -641,6 +669,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             loadServices();
             loadVipPrice();
+            loadSpendingSettings();
         });
 
         async function loadServices() {
@@ -666,6 +695,57 @@
                 }
             } catch (error) {
                 console.error('Error loading VIP price:', error);
+            }
+        }
+
+        async function loadSpendingSettings() {
+            try {
+                const response = await fetch('/api/admin/spending-settings');
+                const result = await response.json();
+                if (result.success) {
+                    if (result.target) {
+                        document.getElementById('spendingTarget').value = result.target;
+                    }
+                    if (result.bonus) {
+                        document.getElementById('bonusAmount').value = result.bonus;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading spending settings:', error);
+            }
+        }
+
+        async function saveSpendingTarget() {
+            const target = document.getElementById('spendingTarget').value;
+            try {
+                const response = await fetch('/api/admin/spending-settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ target: parseInt(target) })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showSuccess('Spending target updated successfully!');
+                }
+            } catch (error) {
+                console.error('Error saving spending target:', error);
+            }
+        }
+
+        async function saveBonusAmount() {
+            const bonus = document.getElementById('bonusAmount').value;
+            try {
+                const response = await fetch('/api/admin/spending-settings', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ bonus: parseInt(bonus) })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    showSuccess('Bonus amount updated successfully!');
+                }
+            } catch (error) {
+                console.error('Error saving bonus amount:', error);
             }
         }
 

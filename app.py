@@ -4144,5 +4144,76 @@ def update_vip_price():
     return {'success': False, 'message': 'Database not available'}, 500
 
 
+@app.route('/api/admin/spending-settings', methods=['GET'])
+@login_required
+def get_spending_settings():
+    if not session.get('is_admin'):
+        return {'success': False, 'message': 'Access denied'}, 403
+    
+    target = 4000  # Default target
+    bonus = 500    # Default bonus
+    
+    if db:
+        try:
+            doc = db.collection('settings').document('spending').get()
+            if doc.exists:
+                data = doc.to_dict()
+                target = data.get('target', 4000)
+                bonus = data.get('bonus', 500)
+        except Exception as e:
+            print(f'Error loading spending settings: {e}')
+    
+    return {'success': True, 'target': target, 'bonus': bonus}
+
+
+@app.route('/api/admin/spending-settings', methods=['POST'])
+@login_required
+def update_spending_settings():
+    if not session.get('is_admin'):
+        return {'success': False, 'message': 'Access denied'}, 403
+    
+    data = request.get_json() or {}
+    target = data.get('target')
+    bonus = data.get('bonus')
+    
+    update_data = {}
+    if target is not None:
+        update_data['target'] = int(target)
+    if bonus is not None:
+        update_data['bonus'] = int(bonus)
+    
+    if not update_data:
+        return {'success': False, 'message': 'No data to update'}, 400
+    
+    if db:
+        try:
+            db.collection('settings').document('spending').set(update_data, merge=True)
+            return {'success': True, 'message': 'Spending settings updated'}
+        except Exception as e:
+            return {'success': False, 'message': str(e)}, 500
+    
+    return {'success': False, 'message': 'Database not available'}, 500
+
+
+# Client API route to get spending settings
+@app.route('/api/spending-settings', methods=['GET'])
+@login_required
+def get_spending_settings_public():
+    target = 4000  # Default target
+    bonus = 500    # Default bonus
+    
+    if db:
+        try:
+            doc = db.collection('settings').document('spending').get()
+            if doc.exists:
+                data = doc.to_dict()
+                target = data.get('target', 4000)
+                bonus = data.get('bonus', 500)
+        except Exception as e:
+            print(f'Error loading spending settings: {e}')
+    
+    return {'success': True, 'target': target, 'bonus': bonus}
+
+
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
