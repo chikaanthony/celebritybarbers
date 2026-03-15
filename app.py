@@ -10,11 +10,108 @@ import os
 import json
 from functools import wraps
 from datetime import datetime, timedelta
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 app = Flask(__name__,
             template_folder='templates',
             static_folder='static')
 app.secret_key = 'your-secret-key-change-in-production'
+
+# Email configuration for notifications
+EMAIL_ENABLED = os.environ.get('EMAIL_ENABLED', 'false').lower() == 'true'
+EMAIL_HOST = os.environ.get('EMAIL_HOST', 'smtp.gmail.com')
+EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
+EMAIL_USER = os.environ.get('EMAIL_USER', '')
+EMAIL_PASSWORD = os.environ.get('EMAIL_PASSWORD', '')
+EMAIL_FROM = os.environ.get('EMAIL_FROM', 'Celebrity Barber <noreply@celebritybarber.com>')
+
+# Admin email for notifications
+ADMIN_EMAIL = 'chikaanthony896@gmail.com'
+
+
+def send_email(to_email, subject, body, html_body=None):
+    """
+    Send an email to the specified address.
+    Returns True if successful, False otherwise.
+    """
+    if not EMAIL_ENABLED:
+        print(f"Email disabled. Would send to {to_email}: {subject}")
+        return False
+    
+    if not EMAIL_USER or not EMAIL_PASSWORD:
+        print(f"Email not configured. Would send to {to_email}: {subject}")
+        return False
+    
+    try:
+        msg = MIMEMultipart('alternative')
+        msg['Subject'] = subject
+        msg['From'] = EMAIL_FROM
+        msg['To'] = to_email
+        
+        # Attach plain text part
+        text_part = MIMEText(body, 'plain')
+        msg.attach(text_part)
+        
+        # Attach HTML part if provided
+        if html_body:
+            html_part = MIMEText(html_body, 'html')
+            msg.attach(html_part)
+        
+        # Send email
+        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
+            server.starttls()
+            server.login(EMAIL_USER, EMAIL_PASSWORD)
+            server.send_message(msg)
+        
+        print(f"Email sent successfully to {to_email}")
+        return True
+    except Exception as e:
+        print(f"Error sending email: {e}")
+        return False
+
+
+def send_notification_email(user_email, user_name, notification_type, title, message):
+    """
+    Send a notification email to a user.
+    """
+    if not user_email:
+        return False
+    
+    # Create email subject based on notification type
+    subject = f"{title} - Celebrity Barber"
+    
+    # Create plain text body
+    text_body = f"""Hello {user_name},
+
+{message}
+
+Log in to your account to view more details.
+
+Best regards,
+Celebrity Barber Team
+"""
+    
+    # Create HTML body
+    html_body = f"""
+    <html>
+    <body style="font-family: Arial, sans-serif; padding: 20px; max-width: 600px; margin: 0 auto;">
+        <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 30px; border-radius: 10px;">
+            <h2 style="color: #d4af37; margin-top: 0;">👑 Celebrity Barber</h2>
+            <div style="background: white; padding: 20px; border-radius: 8px; margin-top: 20px;">
+                <h3 style="color: #333;">{title}</h3>
+                <p style="color: #666; line-height: 1.6;">{message}</p>
+            </div>
+            <p style="color: #888; font-size: 12px; margin-top: 20px;">
+                Log in to your account to view more details.
+            </p>
+        </div>
+    </body>
+    </html>
+    """
+    
+    return send_email(user_email, subject, text_body, html_body)
 
 ADMIN_MOBILE_FONT_SCALE = 0.8
 CLIENT_MOBILE_FONT_SCALE = 0.8
@@ -825,6 +922,92 @@ def get_configured_vip_price():
         print(f"Error loading VIP price: {e}")
     return default_price
 
+
+def create_notification(user_id, notification_type, title, message, icon='🔔', icon_type='default', related_id=None, send_email_notification=True):
+    """
+    Create a notification for a user and store it in Firestore.
+    Optionally send an email notification.
+    
+    Args:
+        user_id: The user ID to notify
+        notification_type: Type of notification (booking, message, vip, referral, service_update)
+        title: Notification title
+        message: Notification message
+        icon: Icon emoji
+        icon_type: Type of icon for styling (booking, message, vip, referral, success, warning)
+        related_id: Optional related document ID (e.g., booking_id, message_id)
+        send_email_notification: Whether to send email notification (default True)
+    
+    Returns:
+        The created notification document ID or None if failed
+    """
+    if not db or not user_id:
+        return None
+    
+    try:
+        notification_data = {
+            'user_id': user_id,
+            'type': notification_type,
+            'title': title,
+            'message': message,
+            'icon': icon,
+            'icon_type': icon_type,
+            'related_id': related_id,
+            'read': False,
+            'created_at': firestore.SERVER_TIMESTAMP
+        }
+        
+        doc_ref = db.collection('notifications').document()
+        doc_ref.set(notification_data)
+        
+        # Send email notification if enabled
+        if send_email_notification:
+            try:
+                # Get user email from database
+                user_doc = db.collection('users').document(user_id).get()
+                if user_doc.exists:
+                    user_data = user_doc.to_dict() or {}
+                    user_email = user_data.get('email')
+                    user_name = user_data.get('full_name') or user_data.get('name') or 'User'
+                    
+                    if user_email:
+                        # Send email notification
+                        send_notification_email(user_email, user_name, notification_type, title, message)
+                        
+                        # Also notify admin for important events
+                        if notification_type in ['booking_created', 'booking_confirmed', 'vip_approved']:
+                            admin_subject = f"New {notification_type.replace('_', ' ').title()} - {user_name}"
+                            admin_message = f"User {user_name} ({user_email}): {message}"
+                            send_notification_email(ADMIN_EMAIL, 'Admin', notification_type, admin_subject, admin_message)
+            except Exception as e:
+                print(f"Error sending email notification: {e}")
+        
+        return doc_ref.id
+    except Exception as e:
+        print(f"Error creating notification: {e}")
+        return None
+
+
+def get_notification_icon(notification_type):
+    """Get the appropriate icon and icon_type for a notification type."""
+    icons = {
+        'booking': ('📅', 'booking'),
+        'booking_created': ('📅', 'booking'),
+        'booking_approved': ('✅', 'success'),
+        'booking_confirmed': ('✅', 'success'),
+        'booking_cancelled': ('❌', 'warning'),
+        'message': ('💬', 'message'),
+        'voice': ('🎤', 'message'),
+        'vip': ('👑', 'vip'),
+        'vip_approved': ('👑', 'vip'),
+        'vip_rejected': ('👑', 'warning'),
+        'referral': ('🎁', 'referral'),
+        'referral_bonus': ('💰', 'success'),
+        'service_update': ('📢', 'service_update'),
+        'system': ('⚙️', 'default')
+    }
+    return icons.get(notification_type, ('🔔', 'default'))
+
 # Routes
 @app.route('/')
 def index():
@@ -1076,6 +1259,17 @@ def create_booking():
             # Add to bookings collection
             booking_ref = db.collection('bookings').document()
             booking_ref.set(booking_data)
+            
+            # Create notification for admin (new booking)
+            create_notification(
+                user_id=user_id,
+                notification_type='booking_created',
+                title='New Booking Received',
+                message=f'New booking for {data.get("service")} from {user_name}',
+                icon='📅',
+                icon_type='booking',
+                related_id=booking_ref.id
+            )
             
             return {'success': True, 'message': 'Booking submitted successfully'}
         except Exception as e:
@@ -1872,6 +2066,18 @@ def admin_reply_chat():
             }
             db.collection('chats').add(chat_message)
             
+            # Create notification for user - new message from admin
+            message_preview = message[:50] + ('...' if len(message) > 50 else '')
+            create_notification(
+                user_id=user_id,
+                notification_type='message',
+                title='New Message',
+                message=f'Admin replied: {message_preview}',
+                icon='💬',
+                icon_type='message',
+                related_id=user_id
+            )
+            
             return {'success': True}
         except Exception as e:
             print(f"Error sending admin reply: {e}")
@@ -1937,6 +2143,17 @@ def admin_voice_reply_chat():
                 'created_at': firestore.SERVER_TIMESTAMP
             }
             db.collection('chats').add(chat_message)
+            
+            # Create notification for user - new voice note from admin
+            create_notification(
+                user_id=user_id,
+                notification_type='voice',
+                title='New Voice Note',
+                message='Admin sent you a voice note. Tap to listen.',
+                icon='🎤',
+                icon_type='message',
+                related_id=user_id
+            )
             
             return {'success': True}
         except Exception as e:
@@ -2238,7 +2455,7 @@ def notifications():
 @app.route('/api/user/notifications')
 @login_required
 def get_user_notifications():
-    """Get user's notifications from various sources"""
+    """Get user's notifications from Firestore notifications collection"""
     user_id = session.get('user_id')
     
     if db:
@@ -2345,20 +2562,23 @@ def get_user_notifications():
 @app.route('/api/user/notifications/mark-read', methods=['POST'])
 @login_required
 def mark_notification_read():
-    """Mark a notification as read"""
+    """Mark a notification as read in Firestore"""
     data = request.get_json()
     notification_id = data.get('notification_id')
     
     if not notification_id:
         return {'success': False, 'message': 'Notification ID required'}, 400
     
-    # Store in session (for simplicity - in production, store in DB)
-    seen_notifications = session.get('seen_notifications', [])
-    if notification_id not in seen_notifications:
-        seen_notifications.append(notification_id)
-        session['seen_notifications'] = seen_notifications
+    if db:
+        try:
+            # Update the notification in Firestore
+            db.collection('notifications').document(notification_id).update({'read': True})
+            return {'success': True}
+        except Exception as e:
+            print(f"Error marking notification as read: {e}")
+            return {'success': False, 'message': str(e)}, 500
     
-    return {'success': True}
+    return {'success': False, 'message': 'Database not available'}, 500
 
 
 @app.route('/profile')
@@ -2492,6 +2712,20 @@ def approve_booking():
                 approvals = db.collection('approvals').where('booking_id', '==', booking_id).get()
                 for doc in approvals:
                     doc.reference.delete()
+                
+                # Create notification for user - booking approved
+                user_id = booking_data.get('user_id')
+                service = booking_data.get('service', 'your appointment')
+                create_notification(
+                    user_id=user_id,
+                    notification_type='booking_confirmed',
+                    title='Booking Confirmed',
+                    message=f'Your appointment for {service} has been confirmed!',
+                    icon='✅',
+                    icon_type='success',
+                    related_id=booking_id
+                )
+                
                 return jsonify({'success': True, 'message': 'Booking confirmed successfully'})
 
             elif action in ['cancel', 'cancelled']:
@@ -2499,6 +2733,20 @@ def approve_booking():
                 approvals = db.collection('approvals').where('booking_id', '==', booking_id).get()
                 for doc in approvals:
                     doc.reference.delete()
+                
+                # Create notification for user - booking cancelled
+                user_id = booking_data.get('user_id')
+                service = booking_data.get('service', 'your appointment')
+                create_notification(
+                    user_id=user_id,
+                    notification_type='booking_cancelled',
+                    title='Booking Cancelled',
+                    message=f'Your appointment for {service} has been cancelled.',
+                    icon='❌',
+                    icon_type='warning',
+                    related_id=booking_id
+                )
+                
                 return jsonify({'success': True, 'message': 'Booking cancelled'})
 
             else:
@@ -3275,6 +3523,17 @@ def approve_request():
                         'vipExpires': vip_exp,
                         'vip_expires': vip_exp
                     })
+                    
+                    # Create notification for user - VIP approved
+                    create_notification(
+                        user_id=user_id_from_approval,
+                        notification_type='vip_approved',
+                        title='VIP Status Approved!',
+                        message='Congratulations! You are now a VIP member. Enjoy priority cutting and exclusive benefits!',
+                        icon='👑',
+                        icon_type='vip',
+                        related_id=request_id
+                    )
                 except Exception as e:
                     print(f"Error updating VIP: {e}")
 
@@ -3285,6 +3544,18 @@ def approve_request():
                             'status': 'confirmed',
                             'approved_at': firestore.SERVER_TIMESTAMP
                         })
+                        
+                        # Create notification for user - booking confirmed
+                        service = approval_data.get('service', 'your appointment')
+                        create_notification(
+                            user_id=user_id_from_approval,
+                            notification_type='booking_confirmed',
+                            title='Booking Confirmed',
+                            message=f'Your appointment for {service} has been confirmed!',
+                            icon='✅',
+                            icon_type='success',
+                            related_id=booking_id
+                        )
                     except Exception as e:
                         print(f"Error updating booking status: {e}")
 
@@ -3329,14 +3600,46 @@ def decline_request():
     
     if db:
         try:
-            # Update approval status to declined
+            # Get approval data before updating
             doc_ref = db.collection('approvals').document(request_id)
-            doc_ref.update({
-                'status': 'declined',
-                'declinedAt': datetime.now().isoformat(),
-                'declinedBy': session.get('email'),
-                'declineReason': reason
-            })
+            approval_doc = doc_ref.get()
+            
+            if approval_doc.exists:
+                approval_data = approval_doc.to_dict() or {}
+                user_id = approval_data.get('user_id')
+                request_type = approval_data.get('type')
+                
+                # Update approval status to declined
+                doc_ref.update({
+                    'status': 'declined',
+                    'declinedAt': datetime.now().isoformat(),
+                    'declinedBy': session.get('email'),
+                    'declineReason': reason
+                })
+                
+                # Create notification for user based on request type
+                if user_id:
+                    if request_type == 'vip':
+                        create_notification(
+                            user_id=user_id,
+                            notification_type='vip_rejected',
+                            title='VIP Request Declined',
+                            message=f'Your VIP request was declined. Reason: {reason}',
+                            icon='👑',
+                            icon_type='warning',
+                            related_id=request_id
+                        )
+                    elif request_type == 'booking':
+                        service = approval_data.get('service', 'your appointment')
+                        create_notification(
+                            user_id=user_id,
+                            notification_type='booking_cancelled',
+                            title='Booking Declined',
+                            message=f'Your appointment for {service} was declined. Reason: {reason}',
+                            icon='❌',
+                            icon_type='warning',
+                            related_id=request_id
+                        )
             
             return {'success': True, 'message': 'Request declined'}
         except Exception as e:
