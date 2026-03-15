@@ -13,6 +13,10 @@ from datetime import datetime, timedelta
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 app = Flask(__name__,
             template_folder='templates',
@@ -59,11 +63,18 @@ def send_email(to_email, subject, body, html_body=None):
             html_part = MIMEText(html_body, 'html')
             msg.attach(html_part)
         
-        # Send email
-        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
-            server.starttls()
-            server.login(EMAIL_USER, EMAIL_PASSWORD)
-            server.send_message(msg)
+        # Try port 587 with TLS first, then port 465 with SSL
+        try:
+            with smtplib.SMTP(EMAIL_HOST, 587) as server:
+                server.starttls()
+                server.login(EMAIL_USER, EMAIL_PASSWORD)
+                server.send_message(msg)
+        except Exception as tls_error:
+            # Try SSL on port 465
+            print(f"TLS failed, trying SSL: {tls_error}")
+            with smtplib.SMTP_SSL(EMAIL_HOST, 465) as server:
+                server.login(EMAIL_USER, EMAIL_PASSWORD)
+                server.send_message(msg)
         
         print(f"Email sent successfully to {to_email}")
         return True
